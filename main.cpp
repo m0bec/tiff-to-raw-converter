@@ -37,6 +37,19 @@ struct TifIfd{
     }
 };
 
+void ReadBin(bool little_en_flag, unsigned int &read_point, unsigned char *read_file, unsigned int &target, unsigned int read_size){
+    const int SHIFT = 8;
+    for(int i = 0; i < read_size; i++){
+        if(little_en_flag){
+            target += static_cast<unsigned int>(read_file[read_point]) << (i*SHIFT);
+        }
+        else{
+            target += static_cast<unsigned int>(read_file[read_point]) << ((read_size-1-i)*SHIFT);
+        }
+        ++read_point;
+    }
+}
+
 int main(){
     const int BUFF_SIZE = 16;
     const int SHIFT_SIZE = 8;
@@ -75,77 +88,57 @@ int main(){
 
     unsigned char header[8];
     unsigned long long mem_number;
-    unsigned long long array_point = 0;
-    unsigned int start_ifd_point = 0;
+    unsigned int array_point = 0;
 
+    bool little_endian_flag;
     if(std::equal(file_ope,file_ope+sizeof(HEADER_DIRECT_RIGHT),
                     HEADER_DIRECT_RIGHT,HEADER_DIRECT_RIGHT+sizeof(HEADER_DIRECT_RIGHT))){
-        std::cout << "Sorry. Don't support this tiff file.\n";
-        return 0;
+        little_endian_flag = false;
     }
     else if(std::equal(file_ope,file_ope+sizeof(HEADER_DIRECT_LEFT),
                         HEADER_DIRECT_LEFT,HEADER_DIRECT_LEFT+sizeof(HEADER_DIRECT_LEFT))){
-       
-        array_point += sizeof(HEADER_DIRECT_RIGHT);
-
-        for(int i = 0; i < sizeof(TIFF_HEADER); i++){
-            header[i] = file_ope[array_point+sizeof(TIFF_HEADER)-1-i];
-        }
-
-        if(std::equal(header,header+sizeof(TIFF_HEADER),
-                        TIFF_HEADER,TIFF_HEADER+sizeof(TIFF_HEADER))){
-            std::cout << "OK little tiff.\n";
-        }
-        else if(std::equal(header,header+sizeof(TIFF_BIG_HEADER),
-                        TIFF_BIG_HEADER,TIFF_BIG_HEADER+sizeof(TIFF_BIG_HEADER))){
-            std::cout << "Sorry Don't support big tiff.\n";
-            return 0;
-        }
-
-
-        array_point += sizeof(TIFF_HEADER);
-        
-        for(int i = 0; i < HEADER_START_IFD;i++){
-            start_ifd_point += file_ope[array_point+i]<<(i*SHIFT_SIZE);
-        }
-
-        array_point += HEADER_START_IFD;
-        std::cout << start_ifd_point << std::endl;
+        little_endian_flag = true;
     }
+    else{
+        std::cout << "This file is not tiff\n";
+        return 0;
+    }
+    array_point += sizeof(HEADER_DIRECT_RIGHT);
+
+    for(int i = 0; i < sizeof(TIFF_HEADER); i++){
+        if(little_endian_flag)  header[i] = file_ope[array_point+sizeof(TIFF_HEADER)-1-i];
+        else     header[i] = file_ope[array_point+i];
+    }
+    array_point += sizeof(TIFF_HEADER);
+
+    if(std::equal(header,header+sizeof(TIFF_HEADER),
+                    TIFF_HEADER,TIFF_HEADER+sizeof(TIFF_HEADER))){
+        std::cout << "OK little tiff.\n";
+    }
+    else if(std::equal(header,header+sizeof(TIFF_BIG_HEADER),
+                    TIFF_BIG_HEADER,TIFF_BIG_HEADER+sizeof(TIFF_BIG_HEADER))){
+        std::cout << "Sorry Don't support big tiff.\n";
+        return 0;
+    }
+        
+    unsigned int in_idf_point = 0;
+    ReadBin(little_endian_flag, array_point, file_ope, in_idf_point, HEADER_START_IFD);
+
+    std::cout << "Start IFD : " << in_idf_point << std::endl;
 
     TifIfd tag_data;
 
-    for(int i = 0; i < tag_data.ENTRY_SIZE; i++){
-        tag_data.NumDirEntries +=
-            static_cast<unsigned int>(file_ope[start_ifd_point+i])<<(i*SHIFT_SIZE);
-    }
+    ReadBin(little_endian_flag, in_idf_point, file_ope, tag_data.NumDirEntries, tag_data.ENTRY_SIZE);
 
     std::cout << "IDF entry count : " << tag_data.NumDirEntries << std::endl;
 
-    unsigned int in_idf_point = start_ifd_point + tag_data.ENTRY_SIZE;
-
     for(int i = 0; i < tag_data.NumDirEntries; i++){
         TifTag mem_tif_tag;
-        for(int j = 0; j < tag_data.IDF_ID_SIZE; j++){
-            mem_tif_tag.TagId += 
-                static_cast<unsigned int>(file_ope[in_idf_point])<<(j*SHIFT_SIZE);
-            ++in_idf_point;
-        }
-        for(int j = 0; j < tag_data.IDF_TYPE_SIZE; j++){
-            mem_tif_tag.DataType +=
-                static_cast<unsigned int>(file_ope[in_idf_point])<<(j*SHIFT_SIZE);
-            ++in_idf_point;
-        }
-        for(int j = 0; j < tag_data.IDF_COUNT_SIZE; j++){
-            mem_tif_tag.DataCount +=
-                static_cast<unsigned int>(file_ope[in_idf_point])<<(j*SHIFT_SIZE);
-            ++in_idf_point;
-        }
-        for(int j = 0; j < tag_data.IDF_OFFSET_SIZE; j++){
-            mem_tif_tag.DataOffset +=
-                static_cast<unsigned int>(file_ope[in_idf_point])<<(j*SHIFT_SIZE);
-            ++in_idf_point;
-        }
+
+        ReadBin(little_endian_flag, in_idf_point, file_ope, mem_tif_tag.TagId, tag_data.IDF_ID_SIZE);
+        ReadBin(little_endian_flag, in_idf_point, file_ope, mem_tif_tag.DataType, tag_data.IDF_TYPE_SIZE);
+        ReadBin(little_endian_flag, in_idf_point, file_ope, mem_tif_tag.DataCount, tag_data.IDF_COUNT_SIZE);
+        ReadBin(little_endian_flag, in_idf_point, file_ope, mem_tif_tag.DataOffset, tag_data.IDF_OFFSET_SIZE);
 
         std::cout << "IDF num : "
             << std::setw(6)
@@ -155,11 +148,8 @@ int main(){
 
         tag_data.TagList.push_back(mem_tif_tag);
     }
-    for(int i = 0; i < tag_data.NEXT_IDF_SIZE; i++){
-        tag_data.NextIFDOffset +=
-            static_cast<unsigned int>(file_ope[in_idf_point])<<(i*SHIFT_SIZE);
-        ++in_idf_point;
-    }
+
+    ReadBin(little_endian_flag, in_idf_point, file_ope, tag_data.NextIFDOffset, tag_data.NEXT_IDF_SIZE);
 
     std::cout << "Next IDF : "
         << std::setw(6)
